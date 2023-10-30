@@ -16,6 +16,15 @@ void ASteamGameModeBase::BeginPlay() {
 	}
 }
 
+void ASteamGameModeBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	Super::EndPlay(EndPlayReason);
+
+	if (EndPlayReason == EEndPlayReason::Quit) {
+		SteamAPI_Shutdown();
+	}
+}
+
 ASteamGameModeBase::ASteamGameModeBase()
 	: Super()
 {
