@@ -350,7 +350,7 @@ UCLASS()
 class ASYNC_SHOOTER_API UFL_SteamInput : public UBlueprintFunctionLibrary
 {
 	GENERATED_BODY()
-	
+public:
 	UFUNCTION(BlueprintCallable, Category = "Steamworks|SteamInput")
 	/**
 	* Reconfigure the controller to use the specified action set (i.e. "Menu", "Walk", or "Drive").
