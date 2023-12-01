@@ -23,6 +23,18 @@ struct FDynamicActionSet
 	TArray<FString> AnalogActions;
 };
 
+struct DigitalInputAction
+{
+	FInputDigitalActionHandle Handle;
+	FString GlyphPath;
+};
+
+struct AnalogInputAction
+{
+	FInputAnalogActionHandle Handle;
+	FString GlyphPath;
+};
+
 UDELEGATE(BlueprintAuthorityOnly)
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSteamDigitalInput, FString, InputAction);
 
@@ -42,8 +54,8 @@ class ASteamPlayerController : public APlayerController
 private:
 	TArray<FInputHandle> InputHandles;
 	TMap<FString, FInputActionSetHandle> ActionSetHandles;
-	TMap<FString, TMap<FString, FInputDigitalActionHandle>> DigitalActionHandles;
-	TMap<FString, TMap<FString, FInputAnalogActionHandle>> AnalogActionHandles;
+	TMap<FString, TMap<FString, DigitalInputAction>> DigitalActionHandles;
+	TMap<FString, TMap<FString, AnalogInputAction>> AnalogActionHandles;
 	TMap<FString, bool> DigitalActionState;
 	TMap<FString, float> DigitalActionPressedDuration;
 	TMap<FString, float> DigitalActionReleasedDuration;
@@ -65,11 +77,15 @@ public:
 	UPROPERTY(BlueprintAssignable)
 	FSteamAnalogInput OnSteamAnalogInput;
 
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TArray<FDynamicActionSet> InputActionSets;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FString CurrentInputActionSet;
+
+	UFUNCTION(BlueprintCallable)
+	FString GetCurrentGlyphForAction(FString Action);
 
 	virtual void BeginPlay() override;
 

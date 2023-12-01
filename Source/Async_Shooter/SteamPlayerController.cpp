@@ -25,31 +25,50 @@ FInputHandle* ASteamPlayerController::GetInputHandleByIndex(int32 Index)
 	return nullptr;
 }
 
+FString ASteamPlayerController::GetCurrentGlyphForAction(FString Action)
+{
+	TMap<FString, DigitalInputAction>* currentDigitalGlyphs = DigitalActionHandles.Find(CurrentInputActionSet);
+	if (currentDigitalGlyphs != nullptr && currentDigitalGlyphs->Contains(Action)) {
+		return currentDigitalGlyphs->Find(Action)->GlyphPath;
+	}
+	TMap<FString, AnalogInputAction>* currentAnalogGlyphs = AnalogActionHandles.Find(CurrentInputActionSet);
+	if (currentAnalogGlyphs != nullptr && currentAnalogGlyphs->Contains(Action)) {
+		return currentAnalogGlyphs->Find(Action)->GlyphPath;
+	}
+	return "";
+}
+
 void ASteamPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-	UFL_SteamUtils::EnableWarningMessageHook();
 	UFL_SteamInput::Init();
-	DigitalActionHandles = TMap<FString, TMap<FString, FInputDigitalActionHandle>>();
-	AnalogActionHandles = TMap<FString, TMap<FString, FInputAnalogActionHandle>>();
+	UFL_SteamUtils::EnableWarningMessageHook();
+	DigitalActionHandles = TMap<FString, TMap<FString, DigitalInputAction>>();
+	AnalogActionHandles = TMap<FString, TMap<FString, AnalogInputAction>>();
 	for (FDynamicActionSet ActionSet : InputActionSets)
 	{
 		FInputActionSetHandle actionSetHandle = UFL_SteamInput::GetActionSetHandle(ActionSet.ActionSetName);
 		ActionSetHandles.Add(ActionSet.ActionSetName, actionSetHandle);
-		TMap<FString, FInputDigitalActionHandle> digitalActions = TMap<FString, FInputDigitalActionHandle>();
+		TMap<FString, DigitalInputAction> digitalActions = TMap<FString, DigitalInputAction>();
 		for (FString DigitalAction : ActionSet.DigitalActions)
 		{
-			digitalActions.Add(DigitalAction, UFL_SteamInput::GetDigitalActionHandle(DigitalAction));
+			DigitalInputAction inputAction = DigitalInputAction();
+			inputAction.Handle = UFL_SteamInput::GetDigitalActionHandle(DigitalAction);
+			inputAction.GlyphPath = "";
+			digitalActions.Add(DigitalAction, inputAction);
 			DigitalActionState.Add(DigitalAction, false);
 			DigitalActionPressedDuration.Add(DigitalAction, 0);
 			DigitalActionReleasedDuration.Add(DigitalAction, 0);
 		}
 		DigitalActionHandles.Add(ActionSet.ActionSetName, digitalActions);
 
-		TMap<FString, FInputAnalogActionHandle> analogActions = TMap<FString, FInputAnalogActionHandle>();
+		TMap<FString, AnalogInputAction> analogActions = TMap<FString, AnalogInputAction>();
 		for (FString AnalogAction : ActionSet.AnalogActions)
 		{
-			analogActions.Add(AnalogAction, UFL_SteamInput::GetAnalogActionHandle(AnalogAction));
+			AnalogInputAction inputAction = AnalogInputAction();
+			inputAction.Handle = UFL_SteamInput::GetAnalogActionHandle(AnalogAction);
+			inputAction.GlyphPath = "";
+			analogActions.Add(AnalogAction, inputAction);
 		}
 		AnalogActionHandles.Add(ActionSet.ActionSetName, analogActions);
 	}
@@ -69,8 +88,17 @@ void ASteamPlayerController::Tick(float DeltaTime)
 
 	UFL_SteamInput::RunFrame();
 
+	int32 oldNumberOfControllers = InputHandles.Num();
+
 	//Update Connected Controllers
 	InputHandles = UFL_SteamInput::GetConnectedControllers();
+
+	if (oldNumberOfControllers == 0 && InputHandles.Num() > 0) {
+		UFL_SteamInput::Init();
+	}
+	else if(oldNumberOfControllers > 0 && InputHandles.Num() == 0) {
+		UFL_SteamInput::Shutdown();
+	}
 
 	//Does play have a Steam Input controller
 	FInputHandle* controller = GetInputHandleByIndex(GetPlayerIndex());
@@ -84,10 +112,11 @@ void ASteamPlayerController::Tick(float DeltaTime)
 	}
 	UFL_SteamInput::ActivateActionSet(*controller, *currentActionSetHandle);
 	
-	//Await Inputs from Controller
-	TMap<FString, FInputDigitalActionHandle>* digitalInputAction = DigitalActionHandles.Find(CurrentInputActionSet);
-	for (TPair<FString, FInputDigitalActionHandle> pair : *digitalInputAction) {
-		FInputDigitalActionData digitalData = UFL_SteamInput::GetDigitalActionData(*controller, pair.Value);
+	//Await Inputs from Controller and updates Glyph path
+	TMap<FString, DigitalInputAction>* digitalInputAction = DigitalActionHandles.Find(CurrentInputActionSet);
+	for (TPair<FString, DigitalInputAction> pair : *digitalInputAction) {
+		//Digital Input
+		FInputDigitalActionData digitalData = UFL_SteamInput::GetDigitalActionData(*controller, pair.Value.Handle);
 		bool lastState = DigitalActionState.FindOrAdd(pair.Key);
 		float pressedDur = DigitalActionPressedDuration.FindOrAdd(pair.Key);
 		float releasedDur = DigitalActionPressedDuration.FindOrAdd(pair.Key);
@@ -112,13 +141,28 @@ void ASteamPlayerController::Tick(float DeltaTime)
 			OnSteamDigitalInputReleased.Broadcast(pair.Key, newReleasedDur);
 		}
 		DigitalActionState.Add(pair.Key, digitalData.bState);
+		//Get Digital Input Glyph Locations
+		TArray<ECInputActionOrigin> actionOrigins = UFL_SteamInput::GetDigitalActionOrigins(*controller, *currentActionSetHandle, pair.Value.Handle);
+		if (actionOrigins.Num() != 0) {
+			pair.Value.GlyphPath = UFL_SteamInput::GetGlyphPNGForActionOrigin(actionOrigins[0], ECSteamInputGlyphSize::k_ESteamInputGlyphSize_Medium, 0);
+			digitalInputAction->Remove(pair.Key);
+			digitalInputAction->Add(pair.Key, pair.Value);
+		}
 	}
 
-	TMap<FString, FInputAnalogActionHandle>* analogInputAction = AnalogActionHandles.Find(CurrentInputActionSet);
-	for (TPair<FString, FInputAnalogActionHandle> pair : *analogInputAction) {
-		FInputAnalogActionData analogData = UFL_SteamInput::GetAnalogActionData(*controller, pair.Value);
+	TMap<FString, AnalogInputAction>* analogInputAction = AnalogActionHandles.Find(CurrentInputActionSet);
+	for (TPair<FString, AnalogInputAction> pair : *analogInputAction) {
+		//Analog Input
+		FInputAnalogActionData analogData = UFL_SteamInput::GetAnalogActionData(*controller, pair.Value.Handle);
 		if (analogData.bActive) {
 			OnSteamAnalogInput.Broadcast(pair.Key, analogData.state, analogData.eMode);
+		}
+		//Get Analog Input Glyph Locations
+		TArray<ECInputActionOrigin> actionOrigins = UFL_SteamInput::GetAnalogActionOrigins(*controller, *currentActionSetHandle, pair.Value.Handle);
+		if (actionOrigins.Num() != 0) {
+			pair.Value.GlyphPath = UFL_SteamInput::GetGlyphPNGForActionOrigin(actionOrigins[0], ECSteamInputGlyphSize::k_ESteamInputGlyphSize_Medium, 0);
+			analogInputAction->Remove(pair.Key);
+			analogInputAction->Add(pair.Key, pair.Value);
 		}
 	}
 }
